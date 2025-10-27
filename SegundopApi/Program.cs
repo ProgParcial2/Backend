@@ -4,8 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SegundopApi.Data;
 using SegundopApi.Services;
-using SegundopApi.Data;
-using SegundopApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
