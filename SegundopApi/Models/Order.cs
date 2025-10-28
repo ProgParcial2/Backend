@@ -3,6 +3,7 @@
 public class Order
 {
     public int Id { get; set; }
+
     public int ClientId { get; set; }
     public User? Client { get; set; }
 
@@ -10,7 +11,7 @@ public class Order
     public User? Company { get; set; }
 
     public DateTime Date { get; set; } = DateTime.Now;
-    public string Status { get; set; } = "Nuevo"; // Nuevo, Enviado, Entregado, Cancelado
+    public string Status { get; set; } = "Nuevo";
 
     public ICollection<OrderItem>? Items { get; set; }
 }
