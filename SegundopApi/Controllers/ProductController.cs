@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SegundopApi.Data;
+using SegundopApi.DTOs;
 using SegundopApi.Models;
 
 namespace SegundopApi.Controllers;
@@ -19,24 +20,40 @@ public class ProductController : ControllerBase
         _context = context;
     }
 
-    // 🟢 CREATE (POST)
+    // 🟢 Crear producto (solo Empresa)
     [HttpPost]
-    public async Task<IActionResult> CreateProduct([FromBody] Product product)
+    public async Task<IActionResult> CreateProduct([FromBody] ProductCreateDto dto)
     {
         var email = User.FindFirstValue(ClaimTypes.Email);
         var empresa = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-
         if (empresa == null) return Unauthorized("Usuario no válido.");
 
-        product.UserId = empresa.Id;
+        var product = new Product
+        {
+            Name = dto.Name,
+            Description = dto.Description,
+            Price = dto.Price,
+            Stock = dto.Stock,
+            UserId = empresa.Id
+        };
 
         _context.Products.Add(product);
         await _context.SaveChangesAsync();
 
-        return CreatedAtAction(nameof(GetMyProducts), new { id = product.Id }, product);
+        // Mapea a DTO de respuesta limpia
+        var result = new ProductResponseDto
+        {
+            Id = product.Id,
+            Name = product.Name,
+            Description = product.Description,
+            Price = product.Price,
+            Stock = product.Stock
+        };
+
+        return CreatedAtAction(nameof(GetMyProducts), new { id = product.Id }, result);
     }
 
-    // 🔵 READ (GET)
+    // 🔵 Ver productos de la empresa autenticada
     [HttpGet]
     public async Task<IActionResult> GetMyProducts()
     {
@@ -47,14 +64,22 @@ public class ProductController : ControllerBase
 
         var productos = await _context.Products
             .Where(p => p.UserId == empresa.Id)
+            .Select(p => new ProductResponseDto
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Description = p.Description,
+                Price = p.Price,
+                Stock = p.Stock
+            })
             .ToListAsync();
 
         return Ok(productos);
     }
 
-    // 🟠 UPDATE (PUT)
+    // 🟠 Actualizar producto propio
     [HttpPut("{id}")]
-    public async Task<IActionResult> UpdateProduct(int id, [FromBody] Product updated)
+    public async Task<IActionResult> UpdateProduct(int id, [FromBody] ProductCreateDto dto)
     {
         var email = User.FindFirstValue(ClaimTypes.Email);
         var empresa = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
@@ -66,17 +91,26 @@ public class ProductController : ControllerBase
 
         if (product == null) return NotFound("Producto no encontrado o no te pertenece.");
 
-        product.Name = updated.Name;
-        product.Description = updated.Description;
-        product.Price = updated.Price;
-        product.Stock = updated.Stock;
+        product.Name = dto.Name;
+        product.Description = dto.Description;
+        product.Price = dto.Price;
+        product.Stock = dto.Stock;
 
         await _context.SaveChangesAsync();
 
-        return Ok(product);
+        var result = new ProductResponseDto
+        {
+            Id = product.Id,
+            Name = product.Name,
+            Description = product.Description,
+            Price = product.Price,
+            Stock = product.Stock
+        };
+
+        return Ok(result);
     }
 
-    // 🔴 DELETE
+    // 🔴 Eliminar producto propio
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteProduct(int id)
     {
@@ -95,6 +129,8 @@ public class ProductController : ControllerBase
 
         return Ok(new { message = "Producto eliminado correctamente." });
     }
+
+    // 🌐 Ver todos los productos (rol Cliente o público)
     [AllowAnonymous]
     [HttpGet("all")]
     public async Task<IActionResult> GetAllProducts(
@@ -102,7 +138,7 @@ public class ProductController : ControllerBase
         [FromQuery] decimal? minPrice,
         [FromQuery] decimal? maxPrice)
     {
-        var query = _context.Products.Include(p => p.User).AsQueryable();
+        var query = _context.Products.AsQueryable();
 
         if (empresaId.HasValue)
             query = query.Where(p => p.UserId == empresaId.Value);
@@ -113,7 +149,17 @@ public class ProductController : ControllerBase
         if (maxPrice.HasValue)
             query = query.Where(p => p.Price <= maxPrice.Value);
 
-        var productos = await query.ToListAsync();
+        var productos = await query
+            .Select(p => new ProductResponseDto
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Description = p.Description,
+                Price = p.Price,
+                Stock = p.Stock
+            })
+            .ToListAsync();
+
         return Ok(productos);
     }
 }

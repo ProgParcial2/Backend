@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SegundopApi.Data;
+using SegundopApi.DTOs;
 using SegundopApi.Models;
 
 namespace SegundopApi.Controllers;
@@ -12,6 +13,7 @@ namespace SegundopApi.Controllers;
 public class OrderController : ControllerBase
 {
     private readonly AppDbContext _context;
+
     public OrderController(AppDbContext context)
     {
         _context = context;
@@ -20,49 +22,47 @@ public class OrderController : ControllerBase
     // 🟢 Crear pedido (Cliente)
     [Authorize(Roles = "Cliente")]
     [HttpPost]
-    public async Task<IActionResult> CreateOrder([FromBody] List<OrderItem> items)
+    public async Task<IActionResult> CreateOrder([FromBody] OrderCreateDto dto)
     {
         var email = User.FindFirstValue(ClaimTypes.Email);
         var cliente = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+        if (cliente == null) return Unauthorized("Cliente no válido.");
 
-        if (cliente == null) return Unauthorized();
-
-        if (items == null || items.Count == 0)
+        if (dto.Items == null || dto.Items.Count == 0)
             return BadRequest("El pedido está vacío.");
 
-        // Todos los productos deben pertenecer a la misma empresa
-        var firstProduct = await _context.Products.FindAsync(items.First().ProductId);
-        if (firstProduct == null) return BadRequest("Producto no válido.");
-
-        int empresaId = firstProduct.UserId;
-        foreach (var item in items)
-        {
-            var product = await _context.Products.FindAsync(item.ProductId);
-            if (product == null) return BadRequest("Producto inexistente.");
-            if (product.Stock < item.Quantity)
-                return BadRequest($"No hay stock suficiente para {product.Name}.");
-            if (product.UserId != empresaId)
-                return BadRequest("Todos los productos deben pertenecer a la misma empresa.");
-        }
+        var empresa = await _context.Users.FindAsync(dto.CompanyId);
+        if (empresa == null)
+            return NotFound("Empresa no encontrada.");
 
         var order = new Order
         {
             ClientId = cliente.Id,
-            CompanyId = empresaId,
-            Date = DateTime.Now,
+            CompanyId = dto.CompanyId,
+            Date = DateTime.UtcNow,
             Status = "Nuevo",
             Items = new List<OrderItem>()
         };
 
-        foreach (var item in items)
+        // Verificar y descontar stock
+        foreach (var itemDto in dto.Items)
         {
-            var product = await _context.Products.FindAsync(item.ProductId);
-            product!.Stock -= item.Quantity;
+            var product = await _context.Products.FindAsync(itemDto.ProductId);
+            if (product == null)
+                return BadRequest($"Producto {itemDto.ProductId} no existe.");
+            if (product.UserId != dto.CompanyId)
+                return BadRequest($"El producto {product.Name} no pertenece a la empresa seleccionada.");
+            if (product.Stock < itemDto.Quantity)
+                return BadRequest($"Stock insuficiente para {product.Name}.");
 
+            // Descontar stock
+            product.Stock -= itemDto.Quantity;
+
+            // Crear item del pedido
             order.Items.Add(new OrderItem
             {
-                ProductId = item.ProductId,
-                Quantity = item.Quantity,
+                ProductId = product.Id,
+                Quantity = itemDto.Quantity,
                 UnitPrice = product.Price
             });
         }
@@ -70,7 +70,13 @@ public class OrderController : ControllerBase
         _context.Orders.Add(order);
         await _context.SaveChangesAsync();
 
-        return Ok(new { message = "Pedido realizado con éxito.", orderId = order.Id });
+        return Ok(new
+        {
+            message = "Pedido realizado con éxito.",
+            orderId = order.Id,
+            order.Status,
+            order.Date
+        });
     }
 
     // 🔵 Ver historial de pedidos (Cliente)
@@ -80,11 +86,24 @@ public class OrderController : ControllerBase
     {
         var email = User.FindFirstValue(ClaimTypes.Email);
         var cliente = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+        if (cliente == null) return Unauthorized("Cliente no válido.");
 
         var pedidos = await _context.Orders
             .Include(o => o.Items)
             .ThenInclude(i => i.Product)
-            .Where(o => o.ClientId == cliente!.Id)
+            .Where(o => o.ClientId == cliente.Id)
+            .Select(o => new OrderResponseDto
+            {
+                Id = o.Id,
+                Status = o.Status,
+                Date = o.Date,
+                Items = o.Items.Select(i => new OrderItemResponseDto
+                {
+                    ProductName = i.Product.Name,
+                    Quantity = i.Quantity,
+                    UnitPrice = i.UnitPrice
+                }).ToList()
+            })
             .ToListAsync();
 
         return Ok(pedidos);
@@ -97,13 +116,15 @@ public class OrderController : ControllerBase
     {
         var email = User.FindFirstValue(ClaimTypes.Email);
         var empresa = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+        if (empresa == null) return Unauthorized("Empresa no válida.");
 
-        var order = await _context.Orders.FirstOrDefaultAsync(o => o.Id == orderId && o.CompanyId == empresa!.Id);
+        var order = await _context.Orders
+            .FirstOrDefaultAsync(o => o.Id == orderId && o.CompanyId == empresa.Id);
         if (order == null) return NotFound("Pedido no encontrado.");
 
         order.Status = nuevoEstado;
         await _context.SaveChangesAsync();
 
-        return Ok(new { message = $"Estado actualizado a {nuevoEstado}." });
+        return Ok(new { message = $"Estado actualizado a '{nuevoEstado}'." });
     }
 }
