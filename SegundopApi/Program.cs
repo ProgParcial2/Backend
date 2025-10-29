@@ -7,8 +7,11 @@ using SegundopApi.Data;
 using SegundopApi.Services;
 using System.Text.Json.Serialization;
 
-
 var builder = WebApplication.CreateBuilder(args);
+
+// -------------------------------------------------------
+// CONFIGURACIÓN DE SERVICIOS
+// -------------------------------------------------------
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -17,6 +20,19 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.WriteIndented = true;
     });
 
+// 🔹 Habilitar CORS (para permitir peticiones desde Flutter Web, Android o Netlify)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy
+            .AllowAnyOrigin()
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});;
+
+// 🔹 Configuración de Swagger con autenticación JWT
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -26,7 +42,7 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Description = "API para el segundo parcial de Programación Aplicada"
     });
-    
+
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -53,23 +69,25 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-
+// 🔹 Configuración de la base de datos
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection"),
         sqlOptions =>
         {
             sqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 5, // intentos antes de fallar
-                maxRetryDelay: TimeSpan.FromSeconds(10), // espera entre intentos
-                errorNumbersToAdd: null // todos los errores transitorios conocidos
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: null
             );
         }
     )
 );
 
-
+// 🔹 Servicio de Tokens JWT
 builder.Services.AddScoped<TokenService>();
+
+// 🔹 Configuración de autenticación JWT
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opt =>
     {
@@ -85,22 +103,40 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
+// 🔹 Habilitar autorización
 builder.Services.AddAuthorization();
+
+// -------------------------------------------------------
+// CONFIGURACIÓN DE LA APLICACIÓN
+// -------------------------------------------------------
 
 var app = builder.Build();
 
-
+// 🔹 Swagger (solo en desarrollo)
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// ⚠️ Importante: Desactivar HTTPS en desarrollo si Flutter usa HTTP
+// Esto evita el error de “mixed content” en navegadores.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
+// 🔹 Activar CORS antes de autenticación
+app.UseCors("AllowAll");
+
+// 🔹 Autenticación y autorización
 
 app.UseAuthentication();
 app.UseAuthorization();
 
+// 🔹 Mapear controladores
 app.MapControllers();
 
+// 🔹 Iniciar aplicación
 app.Run();
+
