@@ -133,9 +133,17 @@ app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
+// Habilitar Swagger siempre
+app.UseSwagger();
+app.UseSwaggerUI();
 
 // 🔹 Mapear controladores
 app.MapControllers();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+    await next();
+});
 
 // 🔹 Iniciar aplicación
 app.Run();

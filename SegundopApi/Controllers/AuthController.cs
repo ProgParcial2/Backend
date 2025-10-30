@@ -21,10 +21,10 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    public async Task<IActionResult> Register(RegisterDto dto)
+    public async Task<IActionResult> Register([FromBody] RegisterDto dto)
     {
         if (await _context.Users.AnyAsync(u => u.Email == dto.Email))
-            return BadRequest("El email ya está registrado.");
+            return BadRequest(new { message = "El email ya está registrado." });
 
         var user = new User
         {
@@ -40,11 +40,11 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
-    public async Task<IActionResult> Login(LoginDto dto)
+    public async Task<IActionResult> Login([FromBody] LoginDto dto)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
         if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
-            return Unauthorized("Credenciales inválidas.");
+            return Unauthorized(new { message = "Credenciales inválidas." });
 
         var token = _tokenService.GenerateToken(user);
         return Ok(new { token, role = user.Role });
